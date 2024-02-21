@@ -9,13 +9,23 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.example.calculate.Calculator;
 import org.example.calculate.PositiveNumber;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Step1 - 사용자 요청을 메인 Thread가 처리하도록 한다.
+ * <p>
+ * step2 - 사용자 요청이 들어올 때마다 Thread를 새로 생성해서 사용자 요청을 처리하도록 한다.
+ */
+
 public class CustomWebApplicationServer {
     private final int port;
+
+    private final ExecutorService executorService = Executors.newFixedThreadPool(10);
 
     private static final Logger logger = LoggerFactory.getLogger(CustomWebApplicationServer.class);
 
@@ -33,36 +43,24 @@ public class CustomWebApplicationServer {
             while ((clientSocket = serverSocket.accept()) != null) {
                 logger.info("[CustomWebApplicationServer] client connected");
 
+
                 /**
-                 * Step1 - 사용자 요청을 메인 Thread가 처리하도록 한다.
+                 *step2 - 사용자 요청이 들어올 때마다 Thread를 새로 생성해서 사용자 요청을 처리하도록 한다.
+                 *
+                 * Thread는 생성 될때 마다 독립적인 스택 메모리 공간을 할당 받는다.
+                 *
+                 * 요청이 많아지면 성능이 상당히 떨어진다. cpu와 메모리 사용량이 증가한다
+                 * 최악의 상황에는 서버가 다운 될 수 있다.
                  */
-
-                try (InputStream in = clientSocket.getInputStream(); OutputStream out = clientSocket.getOutputStream()) {
-                    BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
-                    DataOutputStream dos = new DataOutputStream(out);
-
-                    HttpRequest httpRequest = new HttpRequest(br);
-
-//                   * GET /calculate?operand1=11&operator=*&operand2=55 HTTP/1.1
-                    if (httpRequest.isGetRequest() && httpRequest.matchPath("/calculate")) {
-                        QueryStrings queryStrings = httpRequest.getQueryStrings();
-
-                        int operand1 = Integer.parseInt(queryStrings.getValue("operand1"));
-                        String operator = queryStrings.getValue("operator");
-                        int operand2 = Integer.parseInt(queryStrings.getValue("operand2"));
-
-                        int result = Calculator.calculate(new PositiveNumber(operand1), operator, new PositiveNumber(operand2));
-
-                        byte[] body = String.valueOf(result).getBytes();
-                        HttpResponse response = new HttpResponse(dos);
-                        response.response200Header("application/json", body.length);
-                        response.responseBody(body);
-
-                    }
+                // 스레드 생성
+//                new Thread(new ClientRequestHandler(clientSocket)).start();
 
 
-
-                }
+                /**
+                 *
+                 * Step3 - Thread Pool을 적용해 안정적인 서비스가 가능하도록 한다.
+                 * */
+                executorService.execute(new ClientRequestHandler(clientSocket));
 
             }
 
